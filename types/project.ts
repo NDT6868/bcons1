@@ -28,4 +28,17 @@ export interface Project {
   };
 }
 
+export interface Lead {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  projectId?: string;
+  projectName?: string;
+  message?: string;
+  status: string;
+  date: string;
+  createdAt?: any;
+}
+
 export type ProjectStatus = Project['status'];

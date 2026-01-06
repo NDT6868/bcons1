@@ -9,29 +9,32 @@ export interface LeadData {
   projectSlug: string;
   projectName?: string;
   source: string; // VD: 'footer', 'project-detail', 'popup'
-  note?: string;
+  message?: string;
 }
 
 export async function createLead(data: LeadData) {
   try {
-    // Basic validation
+    // 1. Validate cơ bản
     if (!data.phone || !data.name) {
-      throw new Error("Missing required fields");
+      throw new Error("Vui lòng nhập Tên và Số điện thoại");
     }
 
-    const docRef = await addDoc(collection(db, "leads"), {
+    // 2. Chuẩn bị dữ liệu
+    const payload = {
       ...data,
-      status: 'Mới', // Mới | Đang tư vấn | Đã chốt | Hủy
-      createdAt: serverTimestamp(), // Sử dụng giờ server của Google để chính xác
+      status: 'new', // new | contacting | qualified | closed_won | junk
+      createdAt: serverTimestamp(), // Dùng server time của Firebase
       userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : 'server',
       url: typeof window !== 'undefined' ? window.location.href : '',
-    });
+    };
+
+    // 3. Gửi lên Firestore collection "leads"
+    const docRef = await addDoc(collection(db, "leads"), payload);
 
     console.log("Lead created with ID: ", docRef.id);
     return { success: true, id: docRef.id };
   } catch (error) {
     console.error("Error adding lead: ", error);
-    // Có thể tích hợp gửi error log về Telegram/Slack tại đây
     throw error;
   }
 }

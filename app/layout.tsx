@@ -1,13 +1,16 @@
 
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import Header from '@/components/layout/Header';
+import Navbar from '@/components/Navbar';
 import Footer from '@/components/layout/Footer';
 import AIAssistant from '@/components/AIAssistant';
-import { ProjectProvider } from '@/contexts/ProjectContext'; // Nếu vẫn dùng context cho Admin/State toàn cục
-import './globals.css'; // Đảm bảo bạn đã có file này hoặc import tailwind CDN trong head nếu chưa setup CSS local
+import Analytics from '@/components/Analytics';
+import { ProjectProvider } from '@/contexts/ProjectContext';
+import { AuthProvider } from '@/contexts/AuthContext';
+import './globals.css';
 
 const inter = Inter({ subsets: ['latin', 'vietnamese'] });
+const GTM_ID = process.env.NEXT_PUBLIC_GTM_ID || "";
 
 export const metadata: Metadata = {
   title: {
@@ -31,18 +34,31 @@ export default function RootLayout({
 }) {
   return (
     <html lang="vi" className="scroll-smooth">
-      <head>
-         <script src="https://cdn.tailwindcss.com"></script>
-      </head>
       <body className={`${inter.className} bg-slate-50 text-slate-900`}>
-        <ProjectProvider>
-          <Header />
-          <main className="min-h-screen pt-20">
-            {children}
-          </main>
-          <Footer />
-          <AIAssistant />
-        </ProjectProvider>
+        {/* GTM NoScript (Must be in body) */}
+        {GTM_ID && (
+          <noscript>
+            <iframe
+              src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`}
+              height="0"
+              width="0"
+              style={{ display: "none", visibility: "hidden" }}
+            />
+          </noscript>
+        )}
+        
+        <Analytics />
+        
+        <AuthProvider>
+          <ProjectProvider>
+            <Navbar />
+            <main className="min-h-screen">
+              {children}
+            </main>
+            <Footer />
+            <AIAssistant />
+          </ProjectProvider>
+        </AuthProvider>
       </body>
     </html>
   );

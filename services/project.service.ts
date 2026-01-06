@@ -7,7 +7,10 @@ import {
   where, 
   limit, 
   doc, 
-  getDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp,
   orderBy
 } from 'firebase/firestore';
 import { Project } from '@/types/project';
@@ -15,12 +18,12 @@ import { PROJECTS as STATIC_PROJECTS } from '@/data/projects';
 
 const COLLECTION_NAME = 'projects';
 
-// Hàm lấy tất cả dự án (Dùng cho trang chủ & generateStaticParams)
+// --- READ ---
+
 export const getProjects = async (): Promise<Project[]> => {
   try {
     const projectsRef = collection(db, COLLECTION_NAME);
-    // Sắp xếp dự án mới nhất lên đầu (giả sử có trường createdAt hoặc dựa vào tên)
-    // Lưu ý: Cần tạo Index trong Firestore nếu dùng orderBy phức tạp
+    // Sắp xếp theo ngày tạo (nếu có) hoặc mặc định
     const q = query(projectsRef); 
     const snapshot = await getDocs(q);
 
@@ -35,11 +38,10 @@ export const getProjects = async (): Promise<Project[]> => {
     })) as Project[];
   } catch (error) {
     console.error("Error fetching projects from Firebase:", error);
-    return STATIC_PROJECTS; // Fallback an toàn để web không sập
+    return STATIC_PROJECTS;
   }
 };
 
-// Hàm lấy chi tiết dự án theo Slug
 export const getProjectBySlug = async (slug: string): Promise<Project | undefined> => {
   try {
     const projectsRef = collection(db, COLLECTION_NAME);
@@ -53,8 +55,6 @@ export const getProjectBySlug = async (slug: string): Promise<Project | undefine
         ...docData.data()
       } as Project;
     }
-    
-    // Fallback: Tìm trong static data nếu không thấy trong DB
     return STATIC_PROJECTS.find(p => p.slug === slug);
   } catch (error) {
     console.error(`Error fetching project slug ${slug}:`, error);
@@ -62,7 +62,6 @@ export const getProjectBySlug = async (slug: string): Promise<Project | undefine
   }
 };
 
-// Hàm lấy dự án nổi bật (Đang mở bán)
 export const getFeaturedProjects = async (): Promise<Project[]> => {
   try {
     const projectsRef = collection(db, COLLECTION_NAME);
@@ -84,5 +83,48 @@ export const getFeaturedProjects = async (): Promise<Project[]> => {
   } catch (error) {
     console.error("Error fetching featured projects:", error);
     return STATIC_PROJECTS.filter(p => p.status === 'Đang mở bán').slice(0, 3);
+  }
+};
+
+// --- WRITE (ADMIN ONLY) ---
+
+export const createProject = async (projectData: Omit<Project, 'id'>) => {
+  try {
+    const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+      ...projectData,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    return { id: docRef.id, ...projectData };
+  } catch (error) {
+    console.error("Error creating project:", error);
+    throw error;
+  }
+};
+
+export const updateProjectInDb = async (id: string, projectData: Partial<Project>) => {
+  try {
+    const docRef = doc(db, COLLECTION_NAME, id);
+    // Loại bỏ id khỏi data update để tránh dư thừa
+    const { id: _, ...dataToUpdate } = projectData as any;
+    
+    await updateDoc(docRef, {
+      ...dataToUpdate,
+      updatedAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error("Error updating project:", error);
+    throw error;
+  }
+};
+
+export const deleteProjectInDb = async (id: string) => {
+  try {
+    await deleteDoc(doc(db, COLLECTION_NAME, id));
+    return true;
+  } catch (error) {
+    console.error("Error deleting project:", error);
+    throw error;
   }
 };

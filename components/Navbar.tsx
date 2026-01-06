@@ -1,10 +1,20 @@
+"use client";
 
 import React, { useState, useEffect } from 'react';
-import { NAV_LINKS } from '../constants';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+
+const NAV_LINKS = [
+  { label: 'Trang chủ', href: '/' },
+  { label: 'Dự án Bcons', href: '/du-an' },
+  { label: 'Tiến độ', href: '/#progress' },
+  { label: 'Liên hệ', href: '/lien-he' },
+];
 
 const Navbar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -12,60 +22,45 @@ const Navbar: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-    if (href.startsWith('#')) {
-      e.preventDefault();
-      const element = document.querySelector(href);
-      if (element) {
-        const offset = 100;
-        const bodyRect = document.body.getBoundingClientRect().top;
-        const elementRect = element.getBoundingClientRect().top;
-        const elementPosition = elementRect - bodyRect;
-        const offsetPosition = elementPosition - offset;
+  // Đóng menu mobile khi chuyển trang
+  useEffect(() => {
+    setIsOpen(false);
+  }, [pathname]);
 
-        window.scrollTo({
-          top: offsetPosition,
-          behavior: 'smooth'
-        });
-        setIsOpen(false);
-      }
-    }
-  };
+  const isHomePage = pathname === '/';
 
   return (
     <nav className={`fixed w-full z-[80] transition-all duration-500 ${
-      scrolled ? 'bg-white/80 backdrop-blur-xl shadow-lg py-3' : 'bg-transparent py-6'
+      scrolled ? 'bg-white/90 backdrop-blur-xl shadow-lg py-3' : 'bg-transparent py-6'
     }`}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center">
           <div className="flex-shrink-0 flex items-center">
-            <a href="/" className="flex items-center group">
+            <Link href="/" className="flex items-center group">
               <span className={`text-2xl font-black transition-colors ${scrolled ? 'text-emerald-600' : 'text-emerald-700'}`}>BCONS</span>
               <span className={`text-2xl font-light ml-1 ${scrolled ? 'text-slate-900' : 'text-slate-900'}`}>CHUNGCU</span>
-            </a>
+            </Link>
           </div>
           
           <div className="hidden lg:block">
             <div className="flex items-center space-x-10">
               {NAV_LINKS.map((link) => (
-                <a
+                <Link
                   key={link.label}
                   href={link.href}
-                  onClick={(e) => handleLinkClick(e, link.href)}
                   className={`text-[11px] font-black uppercase tracking-[2px] transition-all hover:text-emerald-600 ${
                     scrolled ? 'text-slate-600' : 'text-slate-700'
-                  }`}
+                  } ${pathname === link.href ? 'text-emerald-600' : ''}`}
                 >
                   {link.label}
-                </a>
+                </Link>
               ))}
-              <a
-                href="#contact"
-                onClick={(e) => handleLinkClick(e, '#contact')}
+              <Link
+                href="/lien-he"
                 className="bg-emerald-600 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-200/50"
               >
                 Nhận Báo Giá
-              </a>
+              </Link>
             </div>
           </div>
 
@@ -97,22 +92,20 @@ const Navbar: React.FC = () => {
           </div>
           <div className="space-y-6">
             {NAV_LINKS.map((link) => (
-              <a
+              <Link
                 key={link.label}
                 href={link.href}
-                onClick={(e) => handleLinkClick(e, link.href)}
                 className="block text-2xl font-bold text-slate-900 hover:text-emerald-600 transition-colors"
               >
                 {link.label}
-              </a>
+              </Link>
             ))}
-            <a
-              href="#contact"
-              onClick={(e) => handleLinkClick(e, '#contact')}
+            <Link
+              href="/lien-he"
               className="block w-full bg-emerald-600 text-white text-center font-bold py-5 rounded-3xl mt-12 shadow-xl shadow-emerald-100"
             >
               ĐĂNG KÝ NGAY
-            </a>
+            </Link>
           </div>
         </div>
       </div>

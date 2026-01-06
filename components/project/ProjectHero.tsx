@@ -8,13 +8,21 @@ interface Props {
 
 const ProjectHero: React.FC<Props> = ({ project }) => {
   return (
-    <section className="relative h-[50vh] md:h-[65vh] w-full overflow-hidden">
+    <section className="relative h-[50vh] md:h-[65vh] w-full overflow-hidden bg-slate-900">
+      {/* LCP Optimization:
+          - loading="eager" (default for img, but explicit here)
+          - fetchPriority="high" tells browser to load this resource ASAP
+          - decoding="async" prevents main thread blocking
+      */}
       <img 
         src={project.image} 
         alt={`Dự án ${project.name}`} 
-        className="w-full h-full object-cover"
+        className="w-full h-full object-cover opacity-90"
+        fetchPriority="high" 
+        loading="eager"
+        decoding="async"
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent opacity-90"></div>
+      <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent"></div>
       
       <div className="absolute bottom-0 left-0 w-full p-6 md:p-12">
         <div className="max-w-7xl mx-auto">

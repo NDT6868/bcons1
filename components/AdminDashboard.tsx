@@ -1,11 +1,16 @@
-import React, { useState, useRef } from 'react';
-import { useProjects } from '../contexts/ProjectContext';
-import { Project, Lead } from '../types';
+
+import React, { useState, useRef, useEffect } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Project, Lead } from '@/types/project';
+import { createProject, updateProjectInDb, deleteProjectInDb, getProjects } from '@/services/project.service';
+import { uploadImage } from '@/services/storage.service';
+import { db } from '@/services/firebase';
+import { collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 
 // --- Helper Components ---
 
 const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => {
-  React.useEffect(() => {
+  useEffect(() => {
     const timer = setTimeout(onClose, 3000);
     return () => clearTimeout(timer);
   }, [onClose]);
@@ -22,23 +27,29 @@ const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () 
 
 const ImageUploader: React.FC<{ 
   currentImage: string; 
-  onImageChange: (base64: string) => void;
+  onImageUploaded: (url: string) => void;
   label: string; 
-}> = ({ currentImage, onImageChange, label }) => {
+}> = ({ currentImage, onImageUploaded, label }) => {
+  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) { // 2MB limit
-        alert("File quá lớn! Vui lòng chọn ảnh dưới 2MB.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        onImageChange(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      alert("File quá lớn! Vui lòng chọn ảnh dưới 5MB.");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const url = await uploadImage(file);
+      onImageUploaded(url);
+    } catch (error) {
+      alert("Lỗi upload ảnh. Vui lòng thử lại.");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -46,10 +57,15 @@ const ImageUploader: React.FC<{
     <div className="space-y-2">
       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">{label}</label>
       <div 
-        className="relative group cursor-pointer border-2 border-dashed border-slate-200 rounded-xl overflow-hidden hover:border-emerald-400 transition-all bg-slate-50 min-h-[160px] flex items-center justify-center"
+        className={`relative group cursor-pointer border-2 border-dashed border-slate-200 rounded-xl overflow-hidden hover:border-emerald-400 transition-all bg-slate-50 min-h-[160px] flex items-center justify-center ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
         onClick={() => fileInputRef.current?.click()}
       >
-        {currentImage ? (
+        {uploading ? (
+          <div className="flex flex-col items-center">
+            <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+            <span className="text-xs font-bold text-slate-500">Đang tải lên...</span>
+          </div>
+        ) : currentImage ? (
           <>
             <img src={currentImage} alt="Preview" className="w-full h-full object-cover absolute inset-0" />
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -70,14 +86,6 @@ const ImageUploader: React.FC<{
         accept="image/*" 
         className="hidden" 
       />
-      {currentImage && (
-        <input 
-          type="text" 
-          value={currentImage.substring(0, 30) + '...'} 
-          disabled 
-          className="w-full text-[10px] bg-white border border-slate-100 rounded-lg p-2 text-slate-400 font-mono"
-        />
-      )}
     </div>
   );
 };
@@ -85,33 +93,54 @@ const ImageUploader: React.FC<{
 // --- Main Component ---
 
 const AdminDashboard: React.FC = () => {
-  const { 
-    projects, updateProject, addProject, deleteProject, resetToDefault, logout, 
-    adminUsers, addAdmin, deleteAdmin,
-    leads, updateLeadStatus, deleteLead
-  } = useProjects();
+  const { user, logout } = useAuth();
   
-  const [currentView, setCurrentView] = useState<'projects' | 'accounts' | 'leads'>('projects');
+  // Real Data States
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   
-  // Project Edit State
+  // UI States
+  const [currentView, setCurrentView] = useState<'projects' | 'leads'>('projects');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Project>>({});
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'details' | 'media' | 'legal'>('general');
-  
-  // Account Edit State
-  const [newAdminUser, setNewAdminUser] = useState('');
-  const [newAdminPass, setNewAdminPass] = useState('');
-
   const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // --- FETCH DATA (Real-time Listener) ---
+  useEffect(() => {
+    // 1. Listen to Projects
+    const fetchProjects = async () => {
+      const data = await getProjects();
+      setProjects(data);
+    };
+    fetchProjects();
+
+    // 2. Listen to Leads (Realtime)
+    const qLeads = query(collection(db, "leads"), orderBy("createdAt", "desc"));
+    const unsubscribeLeads = onSnapshot(qLeads, (snapshot) => {
+      const leadsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        // Convert timestamp to string/date safely
+        date: doc.data().createdAt?.toDate().toISOString() || new Date().toISOString()
+      })) as Lead[];
+      setLeads(leadsData);
+    });
+
+    return () => {
+      unsubscribeLeads();
+    };
+  }, []);
 
   // Stats
   const totalProjects = projects.length;
   const activeProjects = projects.filter(p => p.status === 'Đang mở bán').length;
   const totalLeads = leads.length;
-  const newLeads = leads.filter(l => l.status === 'Mới').length;
+  const newLeads = leads.filter(l => l.status === 'Mới' || l.status === 'new').length;
   
-  const generateId = (name: string) => name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]/g, '');
+  const generateSlug = (name: string) => name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]/g, '');
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -127,9 +156,8 @@ const AdminDashboard: React.FC = () => {
   const handleAddNew = () => {
     setEditingId(null);
     setFormData({
-      id: '',
-      slug: '',
       name: '',
+      slug: '',
       location: '',
       price: '',
       priceNumeric: 0,
@@ -153,48 +181,61 @@ const AdminDashboard: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSaving(true);
+    
     try {
+      // Auto generate slug if empty
+      const slug = formData.slug || generateSlug(formData.name || 'du-an-moi');
+      const dataToSave = { ...formData, slug };
+
       if (editingId) {
-        updateProject(formData as Project);
+        await updateProjectInDb(editingId, dataToSave);
+        setProjects(prev => prev.map(p => p.id === editingId ? { ...p, ...dataToSave } : p));
         showToast('Cập nhật dự án thành công!');
       } else {
-        const generatedId = formData.id || generateId(formData.name || 'new-project');
-        const newProject = { 
-          ...formData, 
-          id: generatedId,
-          slug: formData.slug || generatedId 
-        } as Project;
-        addProject(newProject);
+        const newProject = await createProject(dataToSave as Omit<Project, 'id'>);
+        setProjects(prev => [newProject as Project, ...prev]);
         showToast('Thêm dự án mới thành công!');
       }
       setShowModal(false);
     } catch (err) {
-      showToast('Có lỗi xảy ra', 'error');
+      console.error(err);
+      showToast('Có lỗi xảy ra khi lưu dữ liệu', 'error');
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleAddAdmin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAdminUser || !newAdminPass) return;
-    try {
-      addAdmin({ username: newAdminUser, password: newAdminPass });
-      showToast('Đã thêm tài khoản admin mới');
-      setNewAdminUser('');
-      setNewAdminPass('');
-    } catch (error: any) {
-      showToast(error.message, 'error');
-    }
-  };
-
-  const handleDeleteAdmin = (username: string) => {
-    if (window.confirm(`Bạn có chắc muốn xóa tài khoản "${username}"?`)) {
+  const handleDeleteProject = async (id: string) => {
+    if (window.confirm('Hành động này không thể hoàn tác. Bạn chắc chắn muốn xóa?')) {
       try {
-        deleteAdmin(username);
-        showToast('Đã xóa tài khoản');
-      } catch (error: any) {
-        showToast(error.message, 'error');
+        await deleteProjectInDb(id);
+        setProjects(prev => prev.filter(p => p.id !== id));
+        showToast('Đã xóa dự án', 'success');
+      } catch (err) {
+        showToast('Lỗi khi xóa dự án', 'error');
+      }
+    }
+  };
+
+  const handleUpdateLeadStatus = async (id: string, newStatus: string) => {
+    try {
+      await updateDoc(doc(db, "leads", id), { status: newStatus });
+      showToast('Đã cập nhật trạng thái');
+    } catch (err) {
+      showToast('Lỗi cập nhật', 'error');
+    }
+  };
+
+  const handleDeleteLead = async (id: string) => {
+    if (window.confirm('Xóa thông tin khách hàng này?')) {
+      try {
+        await deleteDoc(doc(db, "leads", id));
+        showToast('Đã xóa khách hàng');
+      } catch (err) {
+        showToast('Lỗi xóa khách hàng', 'error');
       }
     }
   };
@@ -204,9 +245,13 @@ const AdminDashboard: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString('vi-VN', {
-      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
+    try {
+      return new Date(isoString).toLocaleDateString('vi-VN', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+    } catch (e) {
+      return isoString;
+    }
   };
 
   return (
@@ -217,7 +262,7 @@ const AdminDashboard: React.FC = () => {
       <aside className="w-64 bg-slate-900 text-white fixed h-full hidden md:flex flex-col z-20">
         <div className="p-8 border-b border-slate-800">
           <h2 className="text-2xl font-black text-emerald-500 tracking-tighter">BCONS<span className="text-white font-light">CMS</span></h2>
-          <p className="text-xs text-slate-500 mt-2">v2.5.0 - Admin Portal</p>
+          <p className="text-xs text-slate-500 mt-2 truncate">Admin: {user?.email}</p>
         </div>
         <nav className="flex-1 p-4 space-y-2">
           <div 
@@ -226,7 +271,7 @@ const AdminDashboard: React.FC = () => {
               currentView === 'projects' ? 'bg-emerald-600/10 text-emerald-400 border-emerald-600/20' : 'border-transparent text-slate-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <span className="mr-3">📊</span> Dashboard
+            <span className="mr-3">📊</span> Dự án
           </div>
           <div 
             onClick={() => setCurrentView('leads')}
@@ -235,25 +280,14 @@ const AdminDashboard: React.FC = () => {
             }`}
           >
             <div className="flex items-center"><span className="mr-3">👥</span> Khách hàng</div>
-            {newLeads > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">{newLeads}</span>}
-          </div>
-          <div 
-            onClick={() => setCurrentView('accounts')}
-            className={`px-4 py-3 rounded-xl font-bold text-sm flex items-center cursor-pointer border transition-all ${
-              currentView === 'accounts' ? 'bg-emerald-600/10 text-emerald-400 border-emerald-600/20' : 'border-transparent text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <span className="mr-3">🛡️</span> Tài khoản Admin
+            {newLeads > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-pulse">{newLeads}</span>}
           </div>
           <div className="px-4 py-3 text-slate-400 hover:text-white hover:bg-white/5 rounded-xl font-bold text-sm flex items-center cursor-pointer transition-colors" onClick={() => window.open('/', '_blank')}>
             <span className="mr-3">🌐</span> Xem Website
           </div>
         </nav>
         <div className="p-4 border-t border-slate-800">
-          <button onClick={resetToDefault} className="w-full text-left px-4 py-3 text-slate-400 hover:text-red-400 text-xs font-bold uppercase tracking-wider mb-2">
-             ⚠ Reset Dữ Liệu
-          </button>
-          <button onClick={logout} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold text-sm transition-colors flex items-center justify-center">
+          <button onClick={() => logout()} className="w-full bg-slate-800 hover:bg-red-600 text-white py-3 rounded-xl font-bold text-sm transition-colors flex items-center justify-center">
             Đăng Xuất
           </button>
         </div>
@@ -264,9 +298,9 @@ const AdminDashboard: React.FC = () => {
         <header className="flex justify-between items-center mb-10">
           <div>
             <h1 className="text-3xl font-black text-slate-900">
-              {currentView === 'projects' ? 'Tổng quan hệ thống' : currentView === 'leads' ? 'Quản lý khách hàng' : 'Quản lý tài khoản'}
+              {currentView === 'projects' ? 'Quản Lý Dự Án' : 'Quản Lý Khách Hàng (Leads)'}
             </h1>
-            <p className="text-slate-500 mt-1">Xin chào, Admin! Hệ thống hoạt động bình thường.</p>
+            <p className="text-slate-500 mt-1">Hệ thống đồng bộ Real-time.</p>
           </div>
           {currentView === 'projects' && (
             <button onClick={handleAddNew} className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 flex items-center">
@@ -282,7 +316,7 @@ const AdminDashboard: React.FC = () => {
               {[
                 { t: 'Tổng Dự Án', v: totalProjects, c: 'bg-blue-50 text-blue-600', i: '🏢' },
                 { t: 'Đang Mở Bán', v: activeProjects, c: 'bg-emerald-50 text-emerald-600', i: '🔥' },
-                { t: 'Khách quan tâm', v: totalLeads, c: 'bg-orange-50 text-orange-600', i: '👥' }
+                { t: 'Tổng Khách Hàng', v: totalLeads, c: 'bg-orange-50 text-orange-600', i: '👥' }
               ].map((s, idx) => (
                 <div key={idx} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
                   <div>
@@ -312,9 +346,12 @@ const AdminDashboard: React.FC = () => {
                         <td className="p-6">
                           <div className="flex items-center gap-4">
                             <div className="w-16 h-12 rounded-lg overflow-hidden bg-slate-100">
-                              <img src={project.image} alt="" className="w-full h-full object-cover" />
+                              {project.image && <img src={project.image} alt="" className="w-full h-full object-cover" />}
                             </div>
-                            <span className="font-bold text-slate-900">{project.name}</span>
+                            <div>
+                              <span className="font-bold text-slate-900 block">{project.name}</span>
+                              <span className="text-[10px] text-slate-400">ID: {project.id}</span>
+                            </div>
                           </div>
                         </td>
                         <td className="p-6">
@@ -334,7 +371,7 @@ const AdminDashboard: React.FC = () => {
                           <button onClick={() => handleEdit(project)} className="bg-white border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-600 p-2 rounded-lg transition-all shadow-sm">
                             ✎
                           </button>
-                          <button onClick={() => { if(window.confirm('Xóa dự án này?')) { deleteProject(project.id); showToast('Đã xóa dự án', 'success'); }}} className="bg-white border border-slate-200 text-slate-600 hover:border-red-500 hover:text-red-600 p-2 rounded-lg transition-all shadow-sm">
+                          <button onClick={() => handleDeleteProject(project.id)} className="bg-white border border-slate-200 text-slate-600 hover:border-red-500 hover:text-red-600 p-2 rounded-lg transition-all shadow-sm">
                             🗑
                           </button>
                         </td>
@@ -353,9 +390,9 @@ const AdminDashboard: React.FC = () => {
               <table className="w-full text-left text-sm text-slate-600">
                 <thead className="bg-slate-50 text-slate-900 font-bold uppercase text-[10px] tracking-wider border-b border-slate-100">
                   <tr>
-                    <th className="p-6">Ngày gửi</th>
+                    <th className="p-6">Thời gian</th>
                     <th className="p-6">Khách hàng</th>
-                    <th className="p-6">Nhu cầu</th>
+                    <th className="p-6">Nguồn & Nhu cầu</th>
                     <th className="p-6">Trạng thái</th>
                     <th className="p-6 text-right">Thao tác</th>
                   </tr>
@@ -363,40 +400,40 @@ const AdminDashboard: React.FC = () => {
                 <tbody className="divide-y divide-slate-50">
                   {leads.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-8 text-center text-slate-400">Chưa có khách hàng nào đăng ký.</td>
+                      <td colSpan={5} className="p-8 text-center text-slate-400">Chưa có khách hàng nào.</td>
                     </tr>
                   ) : (
                     leads.map(lead => (
-                      <tr key={lead.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="p-6 text-xs font-mono">{formatDate(lead.date)}</td>
+                      <tr key={lead.id} className={`hover:bg-slate-50/50 transition-colors ${lead.status === 'new' || lead.status === 'Mới' ? 'bg-emerald-50/30' : ''}`}>
+                        <td className="p-6 text-xs font-mono whitespace-nowrap">{formatDate(lead.date)}</td>
                         <td className="p-6">
                           <p className="font-bold text-slate-900">{lead.name}</p>
-                          <p className="text-emerald-600 font-medium">{lead.phone}</p>
+                          <a href={`tel:${lead.phone}`} className="text-emerald-600 font-bold hover:underline block">{lead.phone}</a>
                           {lead.email && <p className="text-xs text-slate-400">{lead.email}</p>}
                         </td>
-                        <td className="p-6">
-                          <p className="font-bold text-slate-900">{lead.projectName || 'Tư vấn chung'}</p>
-                          {lead.message && <p className="text-xs text-slate-500 italic mt-1 line-clamp-2">"{lead.message}"</p>}
+                        <td className="p-6 max-w-xs">
+                          <p className="font-bold text-slate-900 text-xs uppercase bg-slate-100 inline-block px-2 py-0.5 rounded mb-1">{lead.projectName || 'General'}</p>
+                          {lead.message && <p className="text-xs text-slate-600 italic mt-1 line-clamp-2">"{lead.message}"</p>}
                         </td>
                         <td className="p-6">
                           <select 
                             value={lead.status}
-                            onChange={(e) => updateLeadStatus(lead.id, e.target.value as any)}
+                            onChange={(e) => handleUpdateLeadStatus(lead.id, e.target.value)}
                             className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border-none outline-none cursor-pointer ${
-                              lead.status === 'Mới' ? 'bg-red-100 text-red-600' :
-                              lead.status === 'Đang tư vấn' ? 'bg-blue-100 text-blue-600' :
-                              lead.status === 'Đã chốt' ? 'bg-emerald-100 text-emerald-600' :
+                              (lead.status === 'Mới' || lead.status === 'new') ? 'bg-red-100 text-red-600' :
+                              (lead.status === 'Đang tư vấn' || lead.status === 'contacting') ? 'bg-blue-100 text-blue-600' :
+                              (lead.status === 'Đã chốt' || lead.status === 'closed_won') ? 'bg-emerald-100 text-emerald-600' :
                               'bg-slate-100 text-slate-500'
                             }`}
                           >
-                            <option value="Mới">Mới</option>
-                            <option value="Đang tư vấn">Đang tư vấn</option>
-                            <option value="Đã chốt">Đã chốt</option>
-                            <option value="Hủy">Hủy</option>
+                            <option value="new">Mới</option>
+                            <option value="contacting">Đang tư vấn</option>
+                            <option value="closed_won">Đã chốt</option>
+                            <option value="junk">Hủy / Spam</option>
                           </select>
                         </td>
                         <td className="p-6 text-right">
-                          <button onClick={() => { if(window.confirm('Xóa thông tin khách hàng này?')) { deleteLead(lead.id); showToast('Đã xóa lead', 'success'); }}} className="text-slate-400 hover:text-red-500 p-2">
+                          <button onClick={() => handleDeleteLead(lead.id)} className="text-slate-400 hover:text-red-500 p-2">
                             🗑
                           </button>
                         </td>
@@ -405,77 +442,6 @@ const AdminDashboard: React.FC = () => {
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
-        )}
-
-        {currentView === 'accounts' && (
-          <div className="grid lg:grid-cols-2 gap-8">
-            {/* Create Account Form */}
-            <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 h-fit">
-              <h3 className="text-xl font-black text-slate-900 mb-6">Tạo tài khoản mới</h3>
-              <form onSubmit={handleAddAdmin} className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Tên đăng nhập</label>
-                  <input 
-                    required 
-                    type="text" 
-                    value={newAdminUser}
-                    onChange={e => setNewAdminUser(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-emerald-500 outline-none font-medium"
-                    placeholder="VD: sales_manager"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Mật khẩu</label>
-                  <input 
-                    required 
-                    type="password" 
-                    value={newAdminPass}
-                    onChange={e => setNewAdminPass(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-emerald-500 outline-none font-medium"
-                    placeholder="••••••••"
-                  />
-                </div>
-                <button type="submit" className="w-full bg-slate-900 text-white font-black py-4 rounded-xl hover:bg-emerald-600 transition-all uppercase tracking-widest text-xs mt-4">
-                  Thêm Tài Khoản
-                </button>
-              </form>
-            </div>
-
-            {/* List Accounts */}
-            <div className="bg-white rounded-[32px] shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-8 border-b border-slate-100 bg-slate-50/50">
-                 <h3 className="text-xl font-black text-slate-900">Danh sách Admin</h3>
-                 <p className="text-xs text-slate-500 mt-1">Quản lý quyền truy cập CMS</p>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {adminUsers.map((user, idx) => (
-                  <div key={idx} className="p-6 flex items-center justify-between group hover:bg-slate-50 transition-colors">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-lg">
-                        {user.username.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="font-bold text-slate-900">{user.username}</p>
-                        <p className="text-xs text-slate-400">********</p>
-                      </div>
-                    </div>
-                    {user.username !== 'admin' && (
-                      <button 
-                        onClick={() => handleDeleteAdmin(user.username)}
-                        className="text-slate-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-all"
-                        title="Xóa tài khoản"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      </button>
-                    )}
-                    {user.username === 'admin' && (
-                       <span className="text-[10px] font-bold bg-slate-200 text-slate-600 px-3 py-1 rounded-full uppercase">Mặc định</span>
-                    )}
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
         )}
@@ -495,8 +461,8 @@ const AdminDashboard: React.FC = () => {
               {[
                 { id: 'general', label: 'Thông tin chung' },
                 { id: 'details', label: 'Chi tiết & Thông số' },
-                { id: 'media', label: 'Hình ảnh & Video' },
-                { id: 'legal', label: 'Pháp lý & Tiến độ' }
+                { id: 'media', label: 'Hình ảnh' },
+                { id: 'legal', label: 'Pháp lý' }
               ].map(tab => (
                 <button 
                   key={tab.id}
@@ -526,16 +492,6 @@ const AdminDashboard: React.FC = () => {
                         value={formData.slug || ''} onChange={e => handleChange('slug', e.target.value)} placeholder="tu-dong-tao" />
                     </div>
                     <div>
-                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Giá hiển thị (Text)</label>
-                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-medium"
-                        value={formData.price} onChange={e => handleChange('price', e.target.value)} />
-                    </div>
-                    <div>
-                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Giá lọc (Số - Tỷ)</label>
-                       <input type="number" step="0.1" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-medium"
-                        value={formData.priceNumeric} onChange={e => handleChange('priceNumeric', parseFloat(e.target.value))} />
-                    </div>
-                    <div>
                        <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Trạng thái</label>
                        <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-medium"
                         value={formData.status} onChange={e => handleChange('status', e.target.value)}>
@@ -556,17 +512,124 @@ const AdminDashboard: React.FC = () => {
                     </div>
                   </div>
                 )}
-                
-                {/* Other tabs remain similar to previous implementation but can be expanded if needed */}
-                {/* For brevity, assuming other tabs code remains the same as previous output in this context block */}
-                
+
+                {activeTab === 'details' && (
+                  <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Giá hiển thị (Text)</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.price} onChange={e => handleChange('price', e.target.value)} />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Giá lọc (Tỷ)</label>
+                       <input type="number" step="0.1" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.priceNumeric} onChange={e => handleChange('priceNumeric', parseFloat(e.target.value))} />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Diện tích</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.area} onChange={e => handleChange('area', e.target.value)} />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Số Block</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.blocks} onChange={e => handleChange('blocks', e.target.value)} />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Số tầng</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.floors} onChange={e => handleChange('floors', e.target.value)} />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Số căn</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.units} onChange={e => handleChange('units', e.target.value)} />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Thời gian bàn giao</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.handover} onChange={e => handleChange('handover', e.target.value)} />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Google Map Embed URL</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.mapUrl} onChange={e => handleChange('mapUrl', e.target.value)} />
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'media' && (
+                  <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 space-y-6">
+                    <ImageUploader 
+                      label="Ảnh đại diện dự án (Thumbnail)"
+                      currentImage={formData.image || ''}
+                      onImageUploaded={(url) => handleChange('image', url)}
+                    />
+                    
+                    <div className="border-t border-slate-100 pt-6">
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-3">Thư viện ảnh (Gallery)</label>
+                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {formData.gallery?.map((img, idx) => (
+                             <div key={idx} className="relative group rounded-xl overflow-hidden aspect-square">
+                                <img src={img} className="w-full h-full object-cover" />
+                                <button type="button" onClick={() => {
+                                  const newGallery = formData.gallery?.filter((_, i) => i !== idx);
+                                  handleChange('gallery', newGallery);
+                                }} className="absolute top-2 right-2 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                             </div>
+                          ))}
+                          <div className="aspect-square">
+                             <ImageUploader 
+                               label="Thêm ảnh"
+                               currentImage=""
+                               onImageUploaded={(url) => handleChange('gallery', [...(formData.gallery || []), url])}
+                             />
+                          </div>
+                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'legal' && (
+                  <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 gap-6">
+                     <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Giấy phép xây dựng</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.legal?.constructionPermit || ''} 
+                        onChange={e => handleChange('legal', {...formData.legal, constructionPermit: e.target.value})} />
+                     </div>
+                     <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Quyết định bàn giao / 1/500</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.legal?.handoverDecision || ''} 
+                        onChange={e => handleChange('legal', {...formData.legal, handoverDecision: e.target.value})} />
+                     </div>
+                     <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Pháp lý sổ hồng</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.legal?.pinkBook || ''} 
+                        onChange={e => handleChange('legal', {...formData.legal, pinkBook: e.target.value})} />
+                     </div>
+                     <div>
+                       <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Tiến độ xây dựng (Mô tả)</label>
+                       <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
+                        value={formData.progress} onChange={e => handleChange('progress', e.target.value)} />
+                     </div>
+                  </div>
+                )}
+
               </form>
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-white flex justify-end gap-3 z-10">
               <button type="button" onClick={() => setShowModal(false)} className="px-8 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition-colors">Hủy Bỏ</button>
-              <button onClick={() => document.getElementById('projectForm')?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))} className="px-8 py-3 rounded-xl font-bold text-white bg-slate-900 hover:bg-emerald-600 shadow-lg hover:shadow-emerald-200 transition-all">
-                {editingId ? 'Lưu Thay Đổi' : 'Tạo Mới'}
+              <button 
+                onClick={() => document.getElementById('projectForm')?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))} 
+                className="px-8 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg hover:shadow-emerald-200 transition-all flex items-center"
+                disabled={isSaving}
+              >
+                {isSaving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>}
+                {editingId ? 'Lưu Thay Đổi' : 'Tạo Dự Án Mới'}
               </button>
             </div>
           </div>

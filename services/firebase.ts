@@ -1,7 +1,8 @@
 
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-// import { getAuth } from "firebase/auth"; // Bỏ comment nếu sau này cần đăng nhập Admin
+import { getStorage } from "firebase/storage";
+import * as firebaseAuth from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -12,9 +13,11 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-// Singleton pattern cho Next.js
+// Singleton Pattern
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-const db = getFirestore(app);
-// const auth = getAuth(app);
 
-export { db };
+const db = getFirestore(app);
+const storage = getStorage(app);
+const auth = firebaseAuth.getAuth(app);
+
+export { db, storage, auth };
