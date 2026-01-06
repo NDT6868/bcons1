@@ -1,3 +1,4 @@
+
 export interface Project {
   id: string;
   slug: string;
@@ -27,29 +28,4 @@ export interface Project {
   };
 }
 
-export interface Message {
-  role: 'user' | 'model';
-  text: string;
-  image?: string;
-  timestamp: Date;
-}
-
-export interface ContactFormData {
-  name: string;
-  phone: string;
-  email: string;
-  projectId: string;
-  message: string;
-}
-
-export interface Lead {
-  id: string;
-  name: string;
-  phone: string;
-  email?: string;
-  projectId?: string; // Optional, maybe "General Inquiry" or specific project ID
-  projectName?: string;
-  message?: string;
-  status: 'Mới' | 'Đang tư vấn' | 'Đã chốt' | 'Hủy';
-  date: string;
-}
+export type ProjectStatus = Project['status'];

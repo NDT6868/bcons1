@@ -5,12 +5,13 @@ import AIAssistant from './components/AIAssistant';
 import ProjectDetail from './components/ProjectDetail';
 import AdminDashboard from './components/AdminDashboard';
 import ProjectCard from './components/ProjectCard';
+import SEO from './components/SEO';
 import { ProjectProvider, useProjects } from './contexts/ProjectContext';
 import { Project } from './types';
 
 // Component con để tách biệt logic sử dụng context
 const MainContent: React.FC = () => {
-  const { projects, isAdmin, login } = useProjects();
+  const { projects, isAdmin, login, addLead } = useProjects();
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   
   // Login UI State
@@ -20,6 +21,7 @@ const MainContent: React.FC = () => {
   const [loginError, setLoginError] = useState(false);
   
   // Contact Form State
+  const [contactForm, setContactForm] = useState({ name: '', phone: '', project: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
@@ -71,10 +73,32 @@ const MainContent: React.FC = () => {
 
   const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!contactForm.name || !contactForm.phone) {
+      alert('Vui lòng nhập tên và số điện thoại');
+      return;
+    }
+    const phoneRegex = /(84|0[3|5|7|8|9])+([0-9]{8})\b/;
+    if (!phoneRegex.test(contactForm.phone)) {
+      alert('Số điện thoại không hợp lệ');
+      return;
+    }
+
     setIsSubmitting(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Simulate API call delay
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // Save to Context
+    const projName = projects.find(p => p.id === contactForm.project)?.name || 'Chưa chọn dự án';
+    addLead({
+      name: contactForm.name,
+      phone: contactForm.phone,
+      projectName: projName,
+      message: `Đăng ký tư vấn từ trang chủ. Dự án quan tâm: ${projName}`
+    });
+
     setIsSubmitting(false);
     setSubmitSuccess(true);
+    setContactForm({ name: '', phone: '', project: '' });
     setTimeout(() => setSubmitSuccess(false), 5000);
   };
 
@@ -85,6 +109,10 @@ const MainContent: React.FC = () => {
 
   return (
     <div className="min-h-screen font-['Inter'] selection:bg-emerald-100 selection:text-emerald-900" id="top">
+      <SEO 
+        title="BconsChungCu.com - Phân phối Căn Hộ Bcons Chính Hãng" 
+        description="Website chính thức phân phối các dự án căn hộ Bcons tại Bình Dương và TP.HCM. Bcons City, Bcons Plaza, Bcons Green View..."
+      />
       <Navbar />
 
       {/* Floating Buttons */}
@@ -365,10 +393,26 @@ const MainContent: React.FC = () => {
                         ) : (
                            <form onSubmit={handleContactSubmit} className="space-y-6">
                               <div className="grid md:grid-cols-2 gap-6">
-                                 <input required type="text" className="w-full bg-white/10 border border-white/10 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-white/50" placeholder="Họ và tên" />
-                                 <input required type="tel" className="w-full bg-white/10 border border-white/10 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-white/50" placeholder="Số điện thoại" />
+                                 <input 
+                                   required type="text" 
+                                   className="w-full bg-white/10 border border-white/10 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-white/50" 
+                                   placeholder="Họ và tên"
+                                   value={contactForm.name}
+                                   onChange={e => setContactForm({...contactForm, name: e.target.value})}
+                                 />
+                                 <input 
+                                   required type="tel" 
+                                   className="w-full bg-white/10 border border-white/10 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-white/50" 
+                                   placeholder="Số điện thoại"
+                                   value={contactForm.phone}
+                                   onChange={e => setContactForm({...contactForm, phone: e.target.value})}
+                                 />
                               </div>
-                              <select className="w-full bg-white/10 border border-white/10 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 text-white appearance-none [&>option]:text-slate-900">
+                              <select 
+                                className="w-full bg-white/10 border border-white/10 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 text-white appearance-none [&>option]:text-slate-900"
+                                value={contactForm.project}
+                                onChange={e => setContactForm({...contactForm, project: e.target.value})}
+                              >
                                  <option value="">Dự án quan tâm</option>
                                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                               </select>

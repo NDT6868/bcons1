@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Project } from '../types';
+import { Project, Lead } from '../types';
 import { BCONS_PROJECTS as DEFAULT_PROJECTS } from '../constants';
 
 interface AdminUser {
@@ -12,6 +12,7 @@ interface ProjectContextType {
   projects: Project[];
   isAdmin: boolean;
   adminUsers: AdminUser[];
+  leads: Lead[];
   login: (username: string, password: string) => boolean;
   logout: () => void;
   updateProject: (updatedProject: Project) => void;
@@ -19,6 +20,9 @@ interface ProjectContextType {
   deleteProject: (id: string) => void;
   addAdmin: (user: AdminUser) => void;
   deleteAdmin: (username: string) => void;
+  addLead: (lead: Omit<Lead, 'id' | 'date' | 'status'>) => void;
+  updateLeadStatus: (id: string, status: Lead['status']) => void;
+  deleteLead: (id: string) => void;
   resetToDefault: () => void;
 }
 
@@ -39,8 +43,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Admin Users List State
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>(() => {
     const saved = localStorage.getItem('bcons_admin_users');
-    // Default account if none exists
     return saved ? JSON.parse(saved) : [{ username: 'admin', password: 'admin123' }];
+  });
+
+  // Leads State
+  const [leads, setLeads] = useState<Lead[]>(() => {
+    const saved = localStorage.getItem('bcons_leads');
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -50,6 +59,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     localStorage.setItem('bcons_admin_users', JSON.stringify(adminUsers));
   }, [adminUsers]);
+
+  useEffect(() => {
+    localStorage.setItem('bcons_leads', JSON.stringify(leads));
+  }, [leads]);
 
   const login = (username: string, password: string) => {
     const user = adminUsers.find(u => u.username === username && u.password === password);
@@ -92,12 +105,33 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setProjects(prev => prev.filter(p => p.id !== id));
   };
 
+  // Lead Actions
+  const addLead = (leadData: Omit<Lead, 'id' | 'date' | 'status'>) => {
+    const newLead: Lead = {
+      ...leadData,
+      id: Date.now().toString(),
+      date: new Date().toISOString(),
+      status: 'Mới'
+    };
+    setLeads(prev => [newLead, ...prev]);
+  };
+
+  const updateLeadStatus = (id: string, status: Lead['status']) => {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, status } : l));
+  };
+
+  const deleteLead = (id: string) => {
+    setLeads(prev => prev.filter(l => l.id !== id));
+  };
+
   const resetToDefault = () => {
-    if (window.confirm('Hành động này sẽ khôi phục dữ liệu gốc (Dự án & Tài khoản). Bạn có chắc không?')) {
+    if (window.confirm('Hành động này sẽ khôi phục dữ liệu gốc (Dự án, Tài khoản & Khách hàng). Bạn có chắc không?')) {
       setProjects(DEFAULT_PROJECTS);
       setAdminUsers([{ username: 'admin', password: 'admin123' }]);
+      setLeads([]);
       localStorage.removeItem('bcons_projects');
       localStorage.removeItem('bcons_admin_users');
+      localStorage.removeItem('bcons_leads');
       window.location.reload();
     }
   };
@@ -107,6 +141,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       projects, 
       isAdmin,
       adminUsers,
+      leads,
       login,
       logout,
       updateProject, 
@@ -114,6 +149,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       deleteProject,
       addAdmin,
       deleteAdmin,
+      addLead,
+      updateLeadStatus,
+      deleteLead,
       resetToDefault 
     }}>
       {children}

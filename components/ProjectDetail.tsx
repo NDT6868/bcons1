@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Project } from '../types';
 import { useProjects } from '../contexts/ProjectContext';
 import { analyzeProjectVideo } from '../services/geminiService';
+import SEO from './SEO';
 
 interface ProjectDetailProps {
   project: Project;
@@ -133,9 +134,11 @@ const GalleryCarousel: React.FC<GalleryCarouselProps> = ({
 };
 
 const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onContact }) => {
-  const { projects } = useProjects(); // Lấy projects mới nhất từ Context
+  const { projects, addLead } = useProjects(); // Lấy projects mới nhất từ Context
   const allImages = [project.image, ...project.gallery].filter(img => !!img);
-  const [sidebarData, setSidebarData] = useState({ name: '', phone: '', email: '' });
+  
+  // Form State
+  const [sidebarData, setSidebarData] = useState({ name: '', phone: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
@@ -146,10 +149,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onContac
   const handleVideoAnalysis = async () => {
     if (!project.videoUrl) return;
     setAnalyzingVideo(true);
-    // Use type casting to handle environment-provided globals safely and avoid definition conflicts
     const hasKey = await (window as any).aistudio.hasSelectedApiKey();
     if (!hasKey) {
-      // Trigger dialog and assume success as per race condition guidelines
       await (window as any).aistudio.openSelectKey();
     }
     
@@ -157,7 +158,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onContac
       const result = await analyzeProjectVideo(project.videoUrl, project.name);
       setVideoInsight(result);
     } catch (e: any) {
-      // If the request fails with missing entity, reset the key selection state
       if (e?.message?.includes("Requested entity was not found")) {
         await (window as any).aistudio.openSelectKey();
       }
@@ -169,8 +169,19 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onContac
 
   const handleSidebarSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!sidebarData.name || !sidebarData.phone) return;
+    
     setIsSubmitting(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // Save to CRM via Context
+    addLead({
+      name: sidebarData.name,
+      phone: sidebarData.phone,
+      projectName: project.name,
+      message: 'Đăng ký nhận báo giá từ trang chi tiết dự án.'
+    });
+
     setSubmitSuccess(true);
     setIsSubmitting(false);
   };
@@ -179,6 +190,12 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onContac
 
   return (
     <div className="pt-24 min-h-screen bg-white">
+      {/* Dynamic SEO Title & Meta */}
+      <SEO 
+        title={`${project.name} - Thông Tin Chính Thức | Bcons Chung Cư`}
+        description={`${project.name} tại ${project.location}. Giá bán: ${project.price}. Cập nhật tiến độ, pháp lý và bảng giá mới nhất.`}
+      />
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between border-b border-slate-50 mb-8">
         <nav className="flex text-sm text-slate-500 font-medium items-center">
           <button onClick={onBack} className="hover:text-emerald-600">Trang chủ</button>
@@ -392,9 +409,24 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack, onContac
                 </div>
               ) : (
                 <form onSubmit={handleSidebarSubmit} className="space-y-6">
-                  <input required placeholder="Họ và tên *" className="w-full bg-slate-50 border-none rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 transition-all shadow-inner" />
-                  <input required placeholder="Số điện thoại *" className="w-full bg-slate-50 border-none rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 transition-all shadow-inner" />
-                  <button type="submit" className="w-full bg-emerald-600 text-white font-black py-5 rounded-2xl hover:bg-emerald-700 transition-all uppercase tracking-widest text-sm shadow-xl shadow-emerald-200">NHẬN BÁO GIÁ</button>
+                  <input 
+                    required 
+                    placeholder="Họ và tên *" 
+                    className="w-full bg-slate-50 border-none rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 transition-all shadow-inner" 
+                    value={sidebarData.name}
+                    onChange={e => setSidebarData({...sidebarData, name: e.target.value})}
+                  />
+                  <input 
+                    required 
+                    type="tel"
+                    placeholder="Số điện thoại *" 
+                    className="w-full bg-slate-50 border-none rounded-2xl p-5 outline-none focus:ring-2 focus:ring-emerald-500 transition-all shadow-inner" 
+                    value={sidebarData.phone}
+                    onChange={e => setSidebarData({...sidebarData, phone: e.target.value})}
+                  />
+                  <button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 text-white font-black py-5 rounded-2xl hover:bg-emerald-700 transition-all uppercase tracking-widest text-sm shadow-xl shadow-emerald-200">
+                    {isSubmitting ? 'ĐANG GỬI...' : 'NHẬN BÁO GIÁ'}
+                  </button>
                 </form>
               )}
               

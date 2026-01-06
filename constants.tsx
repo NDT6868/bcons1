@@ -1,9 +1,9 @@
-
 import { Project } from './types';
 
 export const BCONS_PROJECTS: Project[] = [
   {
     id: 'bcons-center-city',
+    slug: 'bcons-center-city',
     name: 'Bcons Center City',
     location: 'Mặt tiền Thống Nhất, P. Đông Hòa, TP. Dĩ An, Bình Dương',
     price: 'Chỉ từ 1.8 tỷ/căn',
@@ -51,6 +51,7 @@ export const BCONS_PROJECTS: Project[] = [
   },
   {
     id: 'bcons-avenue',
+    slug: 'bcons-avenue',
     name: 'Bcons Avenue',
     location: 'Xa Lộ Hà Nội, P. Bình Thắng, Dĩ An, Bình Dương',
     price: 'Từ 35 triệu/m2',
@@ -80,6 +81,7 @@ export const BCONS_PROJECTS: Project[] = [
   },
   {
     id: 'bcons-city',
+    slug: 'bcons-city',
     name: 'Bcons City',
     location: 'Đường Thống Nhất, P. Đông Hòa, Dĩ An, Bình Dương',
     price: 'Từ 34 triệu/m2',
@@ -109,6 +111,7 @@ export const BCONS_PROJECTS: Project[] = [
   },
   {
     id: 'bcons-polaris',
+    slug: 'bcons-polaris',
     name: 'Bcons Polaris',
     location: 'Lê Trọng Tấn, P. An Bình, Dĩ An, Bình Dương',
     price: 'Từ 1.6 tỷ/căn',

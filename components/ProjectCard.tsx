@@ -1,17 +1,18 @@
 
 import React from 'react';
-import { Project } from '../types';
+import Link from 'next/link';
+import { Project } from '@/types/project';
 
 interface ProjectCardProps {
   project: Project;
-  onClick: (project: Project) => void;
-  onContact: () => void;
+  onClick?: (project: Project) => void; // Optional now
+  onContact?: () => void;
 }
 
-const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick, onContact }) => {
+const ProjectCard: React.FC<ProjectCardProps> = ({ project }) => {
   return (
-    <div className="group bg-white rounded-[32px] overflow-hidden shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 border border-slate-100 flex flex-col h-full">
-      <div className="relative h-72 overflow-hidden cursor-pointer" onClick={() => onClick(project)}>
+    <div className="group relative bg-white rounded-[32px] overflow-hidden shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 border border-slate-100 flex flex-col h-full">
+      <Link href={`/du-an/${project.slug}`} className="block relative h-72 overflow-hidden">
         <img 
           src={project.image} 
           alt={project.name} 
@@ -26,20 +27,17 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick, onContact }
           }`}>
             {project.status}
           </span>
-          {project.id === 'bcons-center-city' && (
-            <span className="bg-orange-500 text-white text-[10px] font-black px-4 py-2 rounded-full uppercase tracking-widest animate-pulse shadow-lg">
-              HOT
-            </span>
-          )}
         </div>
-      </div>
+      </Link>
       
       <div className="p-8 flex flex-col flex-1">
-        <h3 className="text-2xl font-black text-slate-900 mb-2 cursor-pointer hover:text-emerald-600 transition-colors" onClick={() => onClick(project)}>
-          {project.name}
+        <h3 className="text-2xl font-black text-slate-900 mb-2">
+          <Link href={`/du-an/${project.slug}`} className="hover:text-emerald-600 transition-colors">
+            {project.name}
+          </Link>
         </h3>
         <p className="text-slate-400 text-xs mb-6 flex items-start">
-          <svg className="w-4 h-4 mr-1.5 text-emerald-500 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+          <span className="mr-1.5 text-emerald-500">📍</span>
           <span className="line-clamp-2">{project.location}</span>
         </p>
         
@@ -50,13 +48,13 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick, onContact }
                {project.price.includes(' ') ? project.price.split(' ').slice(1).join(' ') : project.price}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <button onClick={() => onClick(project)} className="bg-slate-50 text-slate-900 border border-slate-200 font-bold py-3.5 rounded-xl hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all uppercase tracking-wider text-[10px]">
+          <div className="grid grid-cols-2 gap-3 relative z-20">
+            <Link href={`/du-an/${project.slug}`} className="bg-slate-50 text-slate-900 border border-slate-200 font-bold py-3.5 rounded-xl hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all uppercase tracking-wider text-[10px] text-center">
               Xem Chi Tiết
-            </button>
-            <button onClick={onContact} className="bg-emerald-600 text-white font-bold py-3.5 rounded-xl hover:bg-emerald-700 transition-all uppercase tracking-wider text-[10px] shadow-lg shadow-emerald-200">
-              Nhận Bảng Giá
-            </button>
+            </Link>
+            <Link href={`/du-an/${project.slug}`} className="bg-emerald-600 text-white font-bold py-3.5 rounded-xl hover:bg-emerald-700 transition-all uppercase tracking-wider text-[10px] shadow-lg shadow-emerald-200 text-center">
+              Bảng Giá
+            </Link>
           </div>
         </div>
       </div>
