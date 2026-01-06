@@ -1,0 +1,8 @@
+{
+  "name": "BconsChungCu - Hệ thống Phân phối Bất động sản Bcons",
+  "description": "Nền tảng chuyên nghiệp cung cấp thông tin, báo giá và tư vấn trực tuyến các dự án chung cư Bcons. Tích hợp trợ lý ảo AI thông minh giúp khách hàng tìm kiếm căn hộ mơ ước.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
